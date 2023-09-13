@@ -55,6 +55,7 @@ MODULE_OBJS := \
         src/debugger/gui/CartUAWidget.o \
         src/debugger/gui/CartWDWidget.o \
         src/debugger/gui/CartX07Widget.o \
+        src/debugger/gui/CartPortWidget.o \
         src/debugger/gui/CartDebugWidget.o \
         src/debugger/gui/CpuWidget.o \
         src/debugger/gui/DataGridOpsWidget.o \

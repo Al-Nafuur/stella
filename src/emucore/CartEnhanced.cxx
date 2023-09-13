@@ -300,7 +300,7 @@ bool CartridgeEnhanced::bank(uInt16 bank, uInt16 segment)
 
     // Set the page accessing method for the RAM reading pages
     fromAddr = (ROM_OFFSET + segmentOffset + myReadOffset) & ~System::PAGE_MASK;
-    toAddr   = (ROM_OFFSET + segmentOffset + myReadOffset 
+    toAddr   = (ROM_OFFSET + segmentOffset + myReadOffset
       + (myBankSize >> (myBankShift - myRamBankShift))) & ~System::PAGE_MASK;
     access.type = System::PageAccessType::READ;
 

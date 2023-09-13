@@ -63,6 +63,9 @@
 #include "CartUA.hxx"
 #include "CartWD.hxx"
 #include "CartX07.hxx"
+
+#include "CartPort.hxx"
+
 #include "MD5.hxx"
 #include "Props.hxx"
 #include "Logger.hxx"
@@ -326,6 +329,8 @@ CartCreator::createFromImage(const ByteBuffer& image, size_t size,
       return make_unique<CartridgeWD>(image, size, md5, settings);
     case Bankswitch::Type::_X07:
       return make_unique<CartridgeX07>(image, size, md5, settings);
+    case Bankswitch::Type::_CART_PORT:
+      return make_unique<CartridgePort>(image, size, md5, settings, 4_KB);
     default:
       return nullptr;  // The remaining types have already been handled
   }

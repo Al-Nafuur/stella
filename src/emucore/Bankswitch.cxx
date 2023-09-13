@@ -130,6 +130,7 @@ Bankswitch::BSList = {{
   { "WD"      , "WD (Pink Panther)"           },
   { "WDSW"    , "WDSW (Pink Panther, bad)"    },
   { "X07"     , "X07 (64K AtariAge)"          },
+  { "CPORT"   , "CPORT (2600 Cartridge port)" },
 #if defined(CUSTOM_ARM)
   { "CUSTOM"  ,   "CUSTOM (ARM)"              }
 #endif
@@ -194,6 +195,7 @@ Bankswitch::Sizes = {{
   {    8_KB,   8_KB }, // _WD
   {    8_KB,   8_KB+5 }, // _WDSW
   {   64_KB,  64_KB }, // _X07
+  { Bankswitch::any_KB, Bankswitch::any_KB }, // _CART_PORT
 #if defined(CUSTOM_ARM)
   { Bankswitch::any_KB, Bankswitch::any_KB }
 #endif
@@ -210,6 +212,8 @@ Bankswitch::ExtensionMap Bankswitch::ourExtensions = {
   { "zip"   , Bankswitch::Type::_AUTO   },
 #endif
   { "cu"    , Bankswitch::Type::_AUTO   },
+
+  { "CPORT" , Bankswitch::Type::_CART_PORT},
 
   // All bankswitch types (those that UnoCart and HarmonyCart support have the same name)
   { "03E"   , Bankswitch::Type::_03E0   },
@@ -346,5 +350,6 @@ Bankswitch::NameToTypeMap Bankswitch::ourNameToTypes = {
   { "UASW"    , Bankswitch::Type::_UASW   },
   { "WD"      , Bankswitch::Type::_WD     },
   { "WDSW"    , Bankswitch::Type::_WDSW   },
-  { "X07"     , Bankswitch::Type::_X07    }
+  { "X07"     , Bankswitch::Type::_X07    },
+  { "CPORT"   , Bankswitch::Type::_CART_PORT}
 };
