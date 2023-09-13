@@ -34,6 +34,10 @@ Bankswitch::Type CartDetector::autodetectType(const ByteBuffer& image, size_t si
     else
       type = Bankswitch::Type::_AR;
   }
+  else if(size < 50 || isProbablyCartPort(image, size))
+  {
+      type = Bankswitch::Type::_CART_PORT;
+  }
   else if((size <= 2_KB) ||
           (size == 4_KB && std::memcmp(image.get(), image.get() + 2_KB, 2_KB) == 0))
   {
@@ -852,4 +856,16 @@ bool CartDetector::isProbablyPlusROM(const ByteBuffer& image, size_t size)
   static constexpr uInt8 signature[3] = { 0x8d, 0xf0, 0x1f };  // STA $1FF0
 
   return searchForBytes(image, size, signature, 3);
+}
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+bool CartDetector::isProbablyCartPort(const ByteBuffer& image, size_t size)
+{
+  // Cartridge Port definition starts with "Cartridge Port:" string
+  static constexpr uInt8 signature[15] = {
+    0x43, 0x61, 0x72, 0x74, 0x72, 0x69, 0x64, 0x67,
+    0x65, 0x20, 0x50, 0x6f, 0x72, 0x74, 0x3A
+  };  // "Cartridge Port:"
+
+  return searchForBytes(image, 15, signature, 15);
 }
