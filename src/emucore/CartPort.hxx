@@ -142,10 +142,13 @@ class CartridgePort : public CartridgeEnhanced
     void myNanoSleep();
 
   private:
+    bool lastAccessWasWrite;
     int  mem_fd;
     void *gpio_map;
     void *system_timer;
-    int32_t t0, t1;
+    uint32_t t0, t1;
+
+    volatile int delayCounter;
 
     // Timer access
     volatile system_timer_t *mySystemTimer;
