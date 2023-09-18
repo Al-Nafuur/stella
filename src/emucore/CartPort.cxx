@@ -68,6 +68,8 @@ void CartridgePort::install(System& system)
 {
   CartridgeEnhanced::install(system);
 
+  lastAccessWasWrite = false;
+
   // We need to claim all ! access to it here, and deal with it in peek/poke below
   const System::PageAccess access(this, System::PageAccessType::READWRITE);
   for(uInt16 addr = 0x0000; addr < 0x2000; addr += System::PAGE_SIZE)
@@ -125,13 +127,13 @@ void CartridgePort::install(System& system)
   mySystemTimer = (volatile system_timer_t*)system_timer;
 
   // Set GPIO pins 0-12 to output (6502 address)
+  // pins 13-20 to input (6502 data)
+  // pin 21 to output (Level shifter direction)
   *(gpio+(0)) = 0b00001001001001001001001001001001;
   *(gpio+(1)) = 0b001001001;
-
-  // Set GPIO pin 21 to output (Level shifter dir)
   *(gpio+(2)) = 0b001000;
 
-  // Set GPIO pin 21 to Low (ls dir read)
+  // Set GPIO pin 21 to low (initial ls direction is read)
   GPIO_CLR = 1<<21;
 
 }
@@ -149,13 +151,20 @@ uInt8 CartridgePort::peek(uInt16 address)
   uInt8 result = 0;
 
   if(address & 0x1000 ){ // check if cartport address
-    SET_DATA_BUS_READ() // we can restore the databus after the write, or set it before every read/write
+//    SET_DATA_BUS_READ() // we can restore the databus after the write, or set it before every read/write
   // First tell the cartridge wich adress is requested
+    if(lastAccessWasWrite){
+      myNanoSleep();
+    }
     GPIO_CLR = 0b1111111111111;
+    if(lastAccessWasWrite){
+      SET_DATA_BUS_READ() // delete Data on Bus not before changing the address!!!!!
+    }
     GPIO_SET = address;
     t0 = mySystemTimer->counter_low;
     myNanoSleep();
     result = GET_DATA_BUS();
+    lastAccessWasWrite = false;
   }else{ // TIA, RIOT or RAM read.
     if(address & 0b10000000 ){
       result = mySystem->m6532().peek(address);
@@ -165,12 +174,16 @@ uInt8 CartridgePort::peek(uInt16 address)
     // and of course we have to set the databus here for
     // the Cart to peek what TIA and RIOT have to say!
     uInt32 gpio_value = (uInt32) address | (((uInt32)result)<<13 );
-    SET_DATA_BUS_WRITE()
+    if(lastAccessWasWrite){
+      myNanoSleep();
+    } else {
+      SET_DATA_BUS_WRITE()
+    }
     GPIO_CLR = 0b111111111111111111111;
     GPIO_SET = gpio_value;
     t0 = mySystemTimer->counter_low;
-    myNanoSleep();
-
+    lastAccessWasWrite = true;
+//    myNanoSleep();
 //    SET_DATA_BUS_READ() // we can restore the databus after the write, or set it before every read/write
   }
 
@@ -195,7 +208,8 @@ bool CartridgePort::poke(uInt16 address, uInt8 value)
       mySystem->tia().poke(address, value);
     }
   }
-  myNanoSleep();
+  lastAccessWasWrite = true;
+//  myNanoSleep();
 //  SET_DATA_BUS_READ()  // we can restore the databus after the write, or set it before every read/write
 
   return true;
@@ -231,9 +245,10 @@ void CartridgePort::myNanoSleep() // static inline void?
 //  nanosleep(&ts, NULL);
 
 // v2
-//  i = 0;
-//  while(i < 10000)
-//    i++;
+//  delayCounter = 0;
+//  do{
+//    delayCounter++;
+//  } while( delayCounter < 1800);
 
 // v3 lons
 //    long end_t = t_start.tv_nsec + 800;
@@ -246,7 +261,6 @@ void CartridgePort::myNanoSleep() // static inline void?
   do{
     t1 = mySystemTimer->counter_low - t0;
   } while( t1 < 2);
-
 
 }
 //#pragma GCC pop_options
