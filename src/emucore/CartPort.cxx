@@ -155,10 +155,12 @@ uInt8 CartridgePort::peek(uInt16 address)
   // First tell the cartridge wich adress is requested
     if(lastAccessWasWrite){
       myNanoSleep();
-    }
-    GPIO_CLR = 0b1111111111111;
-    if(lastAccessWasWrite){
+      GPIO_CLR = 0b1111111111111;
+      delayCounter = 20;
+      while(delayCounter--){asm volatile("nop"); }
       SET_DATA_BUS_READ() // delete Data on Bus not before changing the address!!!!!
+    } else {
+      GPIO_CLR = 0b1111111111111;
     }
     GPIO_SET = address;
     t0 = mySystemTimer->counter_low;
@@ -176,6 +178,9 @@ uInt8 CartridgePort::peek(uInt16 address)
     uInt32 gpio_value = (uInt32) address | (((uInt32)result)<<13 );
     if(lastAccessWasWrite){
       myNanoSleep();
+      GPIO_CLR = 0b1111111111111;
+      delayCounter = 20;
+      while(delayCounter--){ asm volatile("nop"); }
     } else {
       SET_DATA_BUS_WRITE()
     }
@@ -196,7 +201,14 @@ bool CartridgePort::poke(uInt16 address, uInt8 value)
 //   printf("start poke CartridgePort\n");
   uInt32 gpio_value = (uInt32) address | (((uInt32)value)<<13 );
 
-  SET_DATA_BUS_WRITE()
+  if(lastAccessWasWrite){
+    myNanoSleep();
+    GPIO_CLR = 0b1111111111111;
+    delayCounter = 20;
+    while(delayCounter--){ asm volatile("nop"); }
+  }else{
+    SET_DATA_BUS_WRITE()
+  }
   GPIO_CLR = 0b111111111111111111111;
   GPIO_SET = gpio_value;
   t0 = mySystemTimer->counter_low;
@@ -261,6 +273,10 @@ void CartridgePort::myNanoSleep() // static inline void?
   do{
     t1 = mySystemTimer->counter_low - t0;
   } while( t1 < 2);
+
+// v5
+//  int i = 200;
+//  while(i--){asm volatile("nop"); }
 
 }
 //#pragma GCC pop_options
