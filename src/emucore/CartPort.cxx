@@ -269,14 +269,16 @@ void CartridgePort::myNanoSleep() // static inline void?
 //      clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t_stop);
 //    } while( t_stop.tv_nsec < 200000);
 
+#ifndef RTSTELLA
 // v4
-//  do{
-//    t1 = mySystemTimer->counter_low - t0;
-//  } while( t1 < 2);
-
+  do{
+    t1 = mySystemTimer->counter_low - t0;
+  } while( t1 < 2);
+#else
 // v5
   int i = 300;
   while(i--){asm volatile("nop"); }
+#endif
 
 }
 //#pragma GCC pop_options
