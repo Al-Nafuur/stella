@@ -270,13 +270,13 @@ void CartridgePort::myNanoSleep() // static inline void?
 //    } while( t_stop.tv_nsec < 200000);
 
 // v4
-  do{
-    t1 = mySystemTimer->counter_low - t0;
-  } while( t1 < 2);
+//  do{
+//    t1 = mySystemTimer->counter_low - t0;
+//  } while( t1 < 2);
 
 // v5
-//  int i = 200;
-//  while(i--){asm volatile("nop"); }
+  int i = 300;
+  while(i--){asm volatile("nop"); }
 
 }
 //#pragma GCC pop_options
