@@ -175,7 +175,7 @@ uInt8 CartridgePort::peek(uInt16 address)
     }
     // and of course we have to set the databus here for
     // the Cart to peek what TIA and RIOT have to say!
-    uInt32 gpio_value = (uInt32) address | (((uInt32)result)<<13 );
+    uInt32 gpio_value = (uInt32) (address & 0x1fff) | (((uInt32)result)<<13 );
     if(lastAccessWasWrite){
       myNanoSleep();
       GPIO_CLR = 0b1111111111111;
@@ -199,7 +199,7 @@ uInt8 CartridgePort::peek(uInt16 address)
 bool CartridgePort::poke(uInt16 address, uInt8 value)
 {
 //   printf("start poke CartridgePort\n");
-  uInt32 gpio_value = (uInt32) address | (((uInt32)value)<<13 );
+  uInt32 gpio_value = (uInt32) (address & 0x1fff) | (((uInt32)value)<<13 );
 
   if(lastAccessWasWrite){
     myNanoSleep();
@@ -277,7 +277,7 @@ void CartridgePort::myNanoSleep() // static inline void?
   } while( t1 < 2);
 #else
 // v5: always makes a "full" sleep.
-//      Pi4 user will have to adjust (increase) the i start value.
+//     Pi4 user will have to adjust (increase) the i start value.
   int i = 300;
   while(i--){asm volatile("nop"); }
 #endif
