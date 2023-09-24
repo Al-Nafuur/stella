@@ -270,12 +270,14 @@ void CartridgePort::myNanoSleep() // static inline void?
 //    } while( t_stop.tv_nsec < 200000);
 
 #ifndef RTSTELLA
-// v4
+// v4: timer has been set when the port has been set.
+//     So we only sleep the "remaining" time here before using the bus again
   do{
     t1 = mySystemTimer->counter_low - t0;
   } while( t1 < 2);
 #else
-// v5
+// v5: always makes a "full" sleep.
+//      Pi4 user will have to adjust (increase) the i start value.
   int i = 300;
   while(i--){asm volatile("nop"); }
 #endif
