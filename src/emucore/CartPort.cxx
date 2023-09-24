@@ -156,8 +156,8 @@ uInt8 CartridgePort::peek(uInt16 address)
     if(lastAccessWasWrite){
       myNanoSleep();
       GPIO_CLR = 0b1111111111111;
-      delayCounter = 20;
-      while(delayCounter--){asm volatile("nop"); }
+//      delayCounter = 10;
+//      while(delayCounter--){asm volatile("nop"); }
       SET_DATA_BUS_READ() // delete Data on Bus not before changing the address!!!!!
     } else {
       GPIO_CLR = 0b1111111111111;
@@ -179,8 +179,8 @@ uInt8 CartridgePort::peek(uInt16 address)
     if(lastAccessWasWrite){
       myNanoSleep();
       GPIO_CLR = 0b1111111111111;
-      delayCounter = 20;
-      while(delayCounter--){ asm volatile("nop"); }
+//      delayCounter = 10;
+//      while(delayCounter--){ asm volatile("nop"); }
     } else {
       SET_DATA_BUS_WRITE()
     }
@@ -204,8 +204,8 @@ bool CartridgePort::poke(uInt16 address, uInt8 value)
   if(lastAccessWasWrite){
     myNanoSleep();
     GPIO_CLR = 0b1111111111111;
-    delayCounter = 20;
-    while(delayCounter--){ asm volatile("nop"); }
+//    delayCounter = 10;
+//    while(delayCounter--){ asm volatile("nop"); }
   }else{
     SET_DATA_BUS_WRITE()
   }
