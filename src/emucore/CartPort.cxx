@@ -55,6 +55,13 @@
 #define GPIO_PULL *(gpio+37) // Pull up/pull down
 #define GPIO_PULLCLK0 *(gpio+38) // Pull up/pull down clock
 
+static inline uint64_t read_pmccntr(void) {
+    uint64_t val;
+    asm volatile("mrs %0, pmccntr_el0" : "=r"(val));
+    return val;
+}
+
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CartridgePort::CartridgePort(const ByteBuffer& image, size_t size,
                          string_view md5, const Settings& settings,
@@ -96,35 +103,12 @@ void CartridgePort::install(System& system)
    close(mem_fd); //No need to keep mem_fd open after mmap
 
    if (gpio_map == MAP_FAILED) {
-      printf("mmap error %d\n", (int)gpio_map);//errno also set!
+      printf("mmap error %d\n", (long)gpio_map);//errno also set!
       exit(-1);
    }
 
    // Always use volatile pointer!
    gpio = (volatile unsigned *)gpio_map;
-
-
-  if ((mem_fd = open("/dev/mem", O_RDWR | O_SYNC) ) < 0) {
-      printf("can't open /dev/mem \n");
-      exit(-1);
-  }
-
-  system_timer = mmap(
-      NULL,
-      4096,
-      PROT_READ | PROT_WRITE,
-      MAP_SHARED,
-      mem_fd,
-      ST_BASE
-  );
-
-  close(mem_fd);
-
-  if (system_timer == MAP_FAILED) {
-      printf("mmap error %d\n", (int)system_timer);  // errno also set!
-      exit(-1);
-  }
-  mySystemTimer = (volatile system_timer_t*)system_timer;
 
   // Set GPIO pins 0-12 to output (6502 address)
   // pins 13-20 to input (6502 data)
@@ -163,7 +147,7 @@ uInt8 CartridgePort::peek(uInt16 address)
       GPIO_CLR = 0b1111111111111;
     }
     GPIO_SET = address;
-    t0 = mySystemTimer->counter_low;
+    t0 = read_pmccntr();
     myNanoSleep();
     result = GET_DATA_BUS();
     lastAccessWasWrite = false;
@@ -186,7 +170,7 @@ uInt8 CartridgePort::peek(uInt16 address)
     }
     GPIO_CLR = 0b111111111111111111111;
     GPIO_SET = gpio_value;
-    t0 = mySystemTimer->counter_low;
+    t0 = read_pmccntr();
     lastAccessWasWrite = true;
 //    myNanoSleep();
 //    SET_DATA_BUS_READ() // we can restore the databus after the write, or set it before every read/write
@@ -211,7 +195,7 @@ bool CartridgePort::poke(uInt16 address, uInt8 value)
   }
   GPIO_CLR = 0b111111111111111111111;
   GPIO_SET = gpio_value;
-  t0 = mySystemTimer->counter_low;
+  t0 = read_pmccntr();
 
   if(! (address & 0x1000) ){ // check if TIA, RIOT or RAM write.
     if(address & 0b10000000 ){
@@ -269,12 +253,12 @@ void CartridgePort::myNanoSleep() // static inline void?
 //      clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t_stop);
 //    } while( t_stop.tv_nsec < 200000);
 
-#ifndef RTSTELLA
+#ifdef RTSTELLA
 // v4: timer has been set when the port has been set.
 //     So we only sleep the "remaining" time here before using the bus again
   do{
-    t1 = mySystemTimer->counter_low - t0;
-  } while( t1 < 2);
+    t1 = read_pmccntr() - t0;
+  } while( t1 < 15000);
 #else
 // v5: always makes a "full" sleep.
 //     Pi4 user will have to adjust (increase) the i start value.

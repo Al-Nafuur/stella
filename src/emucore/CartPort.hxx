@@ -26,17 +26,6 @@
   #include "CartPortWidget.hxx"
 #endif
 
-// Sytem Timer Registers layout
-typedef struct {
-    uint32_t control_and_status;
-    uint32_t counter_low;
-    uint32_t counter_high;
-    uint32_t compare_0;
-    uint32_t compare_1;
-    uint32_t compare_2;
-    uint32_t compare_3;
-} system_timer_t;
-
 
 /**
   This is the standard Atari cartridge port.
@@ -145,13 +134,7 @@ class CartridgePort : public CartridgeEnhanced
     bool lastAccessWasWrite;
     int  mem_fd;
     void *gpio_map;
-    void *system_timer;
-    uint32_t t0, t1;
-
-    volatile int delayCounter;
-
-    // Timer access
-    volatile system_timer_t *mySystemTimer;
+    uint64_t t0, t1;
 
     // I/O access
     volatile unsigned *gpio;
