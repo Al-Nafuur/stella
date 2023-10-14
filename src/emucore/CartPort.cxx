@@ -75,7 +75,7 @@ void CartridgePort::install(System& system)
 {
   CartridgeEnhanced::install(system);
 
-  cpu_set_t mask;
+//  cpu_set_t mask;
 
   std::thread cycleThread(CartridgePort::cycleManagerThread);
   cycleThread.detach();
@@ -83,11 +83,11 @@ void CartridgePort::install(System& system)
   printf("Starting CartTester\n");
 
   // set CPU we want to run on
-  CPU_ZERO(&mask);
-  CPU_SET(2, &mask);
-  int result = sched_setaffinity(0, sizeof(mask), &mask);
+ // CPU_ZERO(&mask);
+ // CPU_SET(2, &mask);
+ // int result = sched_setaffinity(0, sizeof(mask), &mask);
 
-  printf("CPU set result CT %d \n", result );
+//  printf("CPU set result CT %d \n", result );
 
   lastAccessWasWrite = false;
 
@@ -254,14 +254,14 @@ void CartridgePort::cycleManagerThread() {
 
   // set CPU we want to run on
   CPU_ZERO(&mask);
-  CPU_SET(3, &mask);
+  CPU_SET(2, &mask);
   int result = sched_setaffinity(0, sizeof(mask), &mask);
   printf("CPU set result CM %d \n", result );
 
   for(;;){
     if( active.load(std::memory_order_acquire) == true ){
-  printf("Cycle start!\n" );
-      g = 600;
+//  printf("Cycle start!\n" );
+      g = 700;
       while(--g){
         asm volatile("nop");
       }
