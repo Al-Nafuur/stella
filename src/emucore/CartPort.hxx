@@ -139,19 +139,13 @@ class CartridgePort : public CartridgeEnhanced
 
   private:
     bool checkSwitchBank(uInt16, uInt8) override { return false; }
-    void myNanoSleep();
+    void waitForCycleEnd();
+    static void cycleManagerThread();
 
   private:
     bool lastAccessWasWrite;
     int  mem_fd;
     void *gpio_map;
-    void *system_timer;
-    uint32_t t0, t1;
-
-    volatile int delayCounter;
-
-    // Timer access
-    volatile system_timer_t *mySystemTimer;
 
     // I/O access
     volatile unsigned *gpio;

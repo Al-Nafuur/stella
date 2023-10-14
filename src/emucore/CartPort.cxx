@@ -26,6 +26,10 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <stdbool.h>
+#include <atomic>
+#include <thread>
+
 
 #include "M6532.hxx"
 #include "TIA.hxx"
@@ -55,6 +59,9 @@
 #define GPIO_PULL *(gpio+37) // Pull up/pull down
 #define GPIO_PULLCLK0 *(gpio+38) // Pull up/pull down clock
 
+std::atomic<bool> active(false);
+
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CartridgePort::CartridgePort(const ByteBuffer& image, size_t size,
                          string_view md5, const Settings& settings,
@@ -67,6 +74,20 @@ CartridgePort::CartridgePort(const ByteBuffer& image, size_t size,
 void CartridgePort::install(System& system)
 {
   CartridgeEnhanced::install(system);
+
+  cpu_set_t mask;
+
+  std::thread cycleThread(CartridgePort::cycleManagerThread);
+  cycleThread.detach();
+
+  printf("Starting CartTester\n");
+
+  // set CPU we want to run on
+  CPU_ZERO(&mask);
+  CPU_SET(2, &mask);
+  int result = sched_setaffinity(0, sizeof(mask), &mask);
+
+  printf("CPU set result CT %d \n", result );
 
   lastAccessWasWrite = false;
 
@@ -103,29 +124,6 @@ void CartridgePort::install(System& system)
    // Always use volatile pointer!
    gpio = (volatile unsigned *)gpio_map;
 
-
-  if ((mem_fd = open("/dev/mem", O_RDWR | O_SYNC) ) < 0) {
-      printf("can't open /dev/mem \n");
-      exit(-1);
-  }
-
-  system_timer = mmap(
-      NULL,
-      4096,
-      PROT_READ | PROT_WRITE,
-      MAP_SHARED,
-      mem_fd,
-      ST_BASE
-  );
-
-  close(mem_fd);
-
-  if (system_timer == MAP_FAILED) {
-      printf("mmap error %d\n", (int)system_timer);  // errno also set!
-      exit(-1);
-  }
-  mySystemTimer = (volatile system_timer_t*)system_timer;
-
   // Set GPIO pins 0-12 to output (6502 address)
   // pins 13-20 to input (6502 data)
   // pin 21 to output (Level shifter direction)
@@ -154,7 +152,7 @@ uInt8 CartridgePort::peek(uInt16 address)
 //    SET_DATA_BUS_READ() // we can restore the databus after the write, or set it before every read/write
   // First tell the cartridge wich adress is requested
     if(lastAccessWasWrite){
-      myNanoSleep();
+      waitForCycleEnd();
       GPIO_CLR = 0b1111111111111;
 //      delayCounter = 10;
 //      while(delayCounter--){asm volatile("nop"); }
@@ -163,8 +161,8 @@ uInt8 CartridgePort::peek(uInt16 address)
       GPIO_CLR = 0b1111111111111;
     }
     GPIO_SET = address;
-    t0 = mySystemTimer->counter_low;
-    myNanoSleep();
+    active.store(true, std::memory_order_release);
+    waitForCycleEnd();
     result = GET_DATA_BUS();
     lastAccessWasWrite = false;
   }else{ // TIA, RIOT or RAM read.
@@ -177,7 +175,7 @@ uInt8 CartridgePort::peek(uInt16 address)
     // the Cart to peek what TIA and RIOT have to say!
     uInt32 gpio_value = (uInt32) (address & 0x1fff) | (((uInt32)result)<<13 );
     if(lastAccessWasWrite){
-      myNanoSleep();
+      waitForCycleEnd();
       GPIO_CLR = 0b1111111111111;
 //      delayCounter = 10;
 //      while(delayCounter--){ asm volatile("nop"); }
@@ -186,9 +184,9 @@ uInt8 CartridgePort::peek(uInt16 address)
     }
     GPIO_CLR = 0b111111111111111111111;
     GPIO_SET = gpio_value;
-    t0 = mySystemTimer->counter_low;
+    active.store(true, std::memory_order_release);
     lastAccessWasWrite = true;
-//    myNanoSleep();
+//    waitForCycleEnd();
 //    SET_DATA_BUS_READ() // we can restore the databus after the write, or set it before every read/write
   }
 
@@ -202,7 +200,7 @@ bool CartridgePort::poke(uInt16 address, uInt8 value)
   uInt32 gpio_value = (uInt32) (address & 0x1fff) | (((uInt32)value)<<13 );
 
   if(lastAccessWasWrite){
-    myNanoSleep();
+    waitForCycleEnd();
     GPIO_CLR = 0b1111111111111;
 //    delayCounter = 10;
 //    while(delayCounter--){ asm volatile("nop"); }
@@ -211,7 +209,7 @@ bool CartridgePort::poke(uInt16 address, uInt8 value)
   }
   GPIO_CLR = 0b111111111111111111111;
   GPIO_SET = gpio_value;
-  t0 = mySystemTimer->counter_low;
+  active.store(true, std::memory_order_release);
 
   if(! (address & 0x1000) ){ // check if TIA, RIOT or RAM write.
     if(address & 0b10000000 ){
@@ -221,7 +219,7 @@ bool CartridgePort::poke(uInt16 address, uInt8 value)
     }
   }
   lastAccessWasWrite = true;
-//  myNanoSleep();
+//  waitForCycleEnd();
 //  SET_DATA_BUS_READ()  // we can restore the databus after the write, or set it before every read/write
 
   return true;
@@ -248,39 +246,31 @@ bool CartridgePort::load(Serializer& in)
   return false;
 }
 
-//#pragma GCC push_options
-//#pragma GCC optimize("O0")
-//__attribute__((optimize(0)))
-void CartridgePort::myNanoSleep() // static inline void?
-{
-// v1
-//  nanosleep(&ts, NULL);
+void CartridgePort::cycleManagerThread() {
+  printf("Starting Cycle Manager\n");
+  int g;
+  cpu_set_t mask;
 
-// v2
-//  delayCounter = 0;
-//  do{
-//    delayCounter++;
-//  } while( delayCounter < 1800);
 
-// v3 lons
-//    long end_t = t_start.tv_nsec + 800;
-//    clock_settime(CLOCK_THREAD_CPUTIME_ID, &ts);
-//    do{
-//      clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t_stop);
-//    } while( t_stop.tv_nsec < 200000);
+  // set CPU we want to run on
+  CPU_ZERO(&mask);
+  CPU_SET(3, &mask);
+  int result = sched_setaffinity(0, sizeof(mask), &mask);
+  printf("CPU set result CM %d \n", result );
 
-#ifndef RTSTELLA
-// v4: timer has been set when the port has been set.
-//     So we only sleep the "remaining" time here before using the bus again
-  do{
-    t1 = mySystemTimer->counter_low - t0;
-  } while( t1 < 2);
-#else
-// v5: always makes a "full" sleep.
-//     Pi4 user will have to adjust (increase) the i start value.
-  int i = 300;
-  while(i--){asm volatile("nop"); }
-#endif
-
+  for(;;){
+    if( active.load(std::memory_order_acquire) == true ){
+  printf("Cycle start!\n" );
+      g = 600;
+      while(--g){
+        asm volatile("nop");
+      }
+      active.store(false, std::memory_order_release);
+    }
+  }
 }
-//#pragma GCC pop_options
+
+void CartridgePort::waitForCycleEnd() // static inline void?
+{
+  while( active.load(std::memory_order_acquire) == true );
+}
