@@ -15,26 +15,28 @@
 // this file, and for a DISCLAIMER OF ALL WARRANTIES.
 //============================================================================
 
-#define BCM2708_PERI_BASE        0x3F000000
-#define GPIO_BASE                (BCM2708_PERI_BASE + 0x200000) /* GPIO controller */
-
-#define SYSTEM_TIMER_OFFSET 0x3000
-#define ST_BASE (BCM2708_PERI_BASE + SYSTEM_TIMER_OFFSET)
-
-
 #include <stdlib.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#include <stdbool.h>
-#include <atomic>
-#include <thread>
+//#include <bcm_host.h>
 
 
 #include "M6532.hxx"
 #include "TIA.hxx"
 #include "System.hxx"
 #include "CartPort.hxx"
+
+// Peripheral base address for the Raspberry Pi3
+//#define PI_PERI_BASE  0x3F000000
+
+// Peripheral base address for the Raspberry Pi4
+#define PI_PERI_BASE  0xFE000000
+
+#define GPIO_BASE     (PI_PERI_BASE + 0x200000) /* GPIO controller */
+
+#define SYSTEM_TIMER_OFFSET 0x3000
+#define ST_BASE (PI_PERI_BASE + SYSTEM_TIMER_OFFSET)
 
 #define BLOCK_SIZE (4*1024)
 // GPIO setup macros. Always use INP_GPIO(x) before using OUT_GPIO(x) or SET_GPIO_ALT(x,y)
@@ -59,8 +61,6 @@
 #define GPIO_PULL *(gpio+37) // Pull up/pull down
 #define GPIO_PULLCLK0 *(gpio+38) // Pull up/pull down clock
 
-std::atomic<bool> active(false);
-
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 CartridgePort::CartridgePort(const ByteBuffer& image, size_t size,
@@ -77,8 +77,7 @@ void CartridgePort::install(System& system)
 
 //  cpu_set_t mask;
 
-  std::thread cycleThread(CartridgePort::cycleManagerThread);
-  cycleThread.detach();
+  myCycleTimerThread = std::thread(&CartridgePort::cycleManagerThread, this);
 
   printf("Starting CartTester\n");
 
@@ -149,19 +148,17 @@ uInt8 CartridgePort::peek(uInt16 address)
   uInt8 result = 0;
 
   if(address & 0x1000 ){ // check if cartport address
-//    SET_DATA_BUS_READ() // we can restore the databus after the write, or set it before every read/write
-  // First tell the cartridge wich adress is requested
+  // First tell the cartridge which adress is requested
     if(lastAccessWasWrite){
       waitForCycleEnd();
-      GPIO_CLR = 0b1111111111111;
-//      delayCounter = 10;
-//      while(delayCounter--){asm volatile("nop"); }
       SET_DATA_BUS_READ() // delete Data on Bus not before changing the address!!!!!
-    } else {
-      GPIO_CLR = 0b1111111111111;
     }
-    GPIO_SET = address;
-    active.store(true, std::memory_order_release);
+
+    if(address != lastAddress) {
+      GPIO_CLR = 0b1111111111111;
+      GPIO_SET = address;
+    }
+    cycleActive = true; //.store(true, std::memory_order_release);
     waitForCycleEnd();
     result = GET_DATA_BUS();
     lastAccessWasWrite = false;
@@ -176,20 +173,21 @@ uInt8 CartridgePort::peek(uInt16 address)
     uInt32 gpio_value = (uInt32) (address & 0x1fff) | (((uInt32)result)<<13 );
     if(lastAccessWasWrite){
       waitForCycleEnd();
-      GPIO_CLR = 0b1111111111111;
-//      delayCounter = 10;
-//      while(delayCounter--){ asm volatile("nop"); }
     } else {
       SET_DATA_BUS_WRITE()
     }
-    GPIO_CLR = 0b111111111111111111111;
-    GPIO_SET = gpio_value;
-    active.store(true, std::memory_order_release);
-    lastAccessWasWrite = true;
-//    waitForCycleEnd();
-//    SET_DATA_BUS_READ() // we can restore the databus after the write, or set it before every read/write
-  }
 
+    if(address != lastAddress) {
+      GPIO_CLR = 0b111111111111111111111;
+      GPIO_SET = gpio_value;
+    }else{
+      GPIO_CLR = 0b111111110000000000000;
+      GPIO_SET = gpio_value;
+    }
+    cycleActive = true; //.store(true, std::memory_order_release);
+    lastAccessWasWrite = true;
+  }
+  lastAddress = address;
   return result;
 }
 
@@ -201,15 +199,18 @@ bool CartridgePort::poke(uInt16 address, uInt8 value)
 
   if(lastAccessWasWrite){
     waitForCycleEnd();
-    GPIO_CLR = 0b1111111111111;
-//    delayCounter = 10;
-//    while(delayCounter--){ asm volatile("nop"); }
   }else{
     SET_DATA_BUS_WRITE()
   }
-  GPIO_CLR = 0b111111111111111111111;
-  GPIO_SET = gpio_value;
-  active.store(true, std::memory_order_release);
+  if(address != lastAddress) {
+    GPIO_CLR = 0b111111111111111111111;
+    GPIO_SET = gpio_value;
+  }else{
+    GPIO_CLR = 0b111111110000000000000;
+    GPIO_SET = gpio_value;
+  }
+
+  cycleActive = true;
 
   if(! (address & 0x1000) ){ // check if TIA, RIOT or RAM write.
     if(address & 0b10000000 ){
@@ -219,8 +220,7 @@ bool CartridgePort::poke(uInt16 address, uInt8 value)
     }
   }
   lastAccessWasWrite = true;
-//  waitForCycleEnd();
-//  SET_DATA_BUS_READ()  // we can restore the databus after the write, or set it before every read/write
+  lastAddress = address;
 
   return true;
 }
@@ -259,18 +259,25 @@ void CartridgePort::cycleManagerThread() {
   printf("CPU set result CM %d \n", result );
 
   for(;;){
-    if( active.load(std::memory_order_acquire) == true ){
+    if( cycleActive == true) { //.load(std::memory_order_acquire) == true ){
 //  printf("Cycle start!\n" );
-      g = 700;
+      g = 560;
       while(--g){
         asm volatile("nop");
       }
-      active.store(false, std::memory_order_release);
+      cycleActive = false; //.store(false, std::memory_order_release);
     }
   }
 }
 
 void CartridgePort::waitForCycleEnd() // static inline void?
 {
-  while( active.load(std::memory_order_acquire) == true );
+/*
+  int g = 300;
+  while(--g){
+    asm volatile("nop");
+  }
+*/
+
+  while( cycleActive == true ); //.load(std::memory_order_acquire) == true );
 }

@@ -10,7 +10,9 @@
 #include "TimerManager.hxx"
 #include "DispatchResult.hxx"
 #include "Console.hxx"
-#include "Debugger.hxx"
+#ifdef DEBUGGER_SUPPORT
+  #include "Debugger.hxx"
+#endif
 #include "TIA.hxx"
 
 namespace {

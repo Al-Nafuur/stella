@@ -19,24 +19,15 @@
 #ifndef CARTRIDGEPORT_HXX
 #define CARTRIDGEPORT_HXX
 
+#include <thread>
+#include <atomic>
+
 #include "bspf.hxx"
 #include "CartEnhanced.hxx"
 //#include "Cart.hxx"
 #ifdef DEBUGGER_SUPPORT
   #include "CartPortWidget.hxx"
 #endif
-
-// Sytem Timer Registers layout
-typedef struct {
-    uint32_t control_and_status;
-    uint32_t counter_low;
-    uint32_t counter_high;
-    uint32_t compare_0;
-    uint32_t compare_1;
-    uint32_t compare_2;
-    uint32_t compare_3;
-} system_timer_t;
-
 
 /**
   This is the standard Atari cartridge port.
@@ -140,12 +131,16 @@ class CartridgePort : public CartridgeEnhanced
   private:
     bool checkSwitchBank(uInt16, uInt8) override { return false; }
     void waitForCycleEnd();
-    static void cycleManagerThread();
+    void cycleManagerThread();
 
   private:
     bool lastAccessWasWrite;
     int  mem_fd;
+    uInt16 lastAddress{0x0000};
     void *gpio_map;
+
+    std::thread myCycleTimerThread;
+    std::atomic<bool> cycleActive{false};
 
     // I/O access
     volatile unsigned *gpio;
