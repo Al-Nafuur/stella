@@ -130,13 +130,13 @@ class CartridgePort : public CartridgeEnhanced
 
   private:
     bool checkSwitchBank(uInt16, uInt8) override { return false; }
+    void setupBusForCartToRead(uInt16, uInt8);
     void waitForCycleEnd();
     void cycleManagerThread();
 
   private:
     bool lastAccessWasWrite;
     int  mem_fd;
-    uInt16 lastAddress{0x0000};
     void *gpio_map;
 
     std::thread myCycleTimerThread;

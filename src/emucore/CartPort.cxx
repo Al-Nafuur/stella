@@ -52,11 +52,18 @@
 #define GET_DATA_BUS() (*(gpio+13)&0x1fe000)>>13 // GPIO 13 - 20 ( 0b000111111110000000000000 )
 
 #define SET_DATA_BUS_READ()  *(gpio+(1)) = 0b00000000000000000000000001001001; \
-                             *(gpio+(2)) = 0b001000; \
-                             GPIO_CLR = 1<<21;
+                             *(gpio+(2)) = 0b001001000; \
+                             GPIO_CLR = 1<<21
 #define SET_DATA_BUS_WRITE() *(gpio+(1)) = 0b00001001001001001001001001001001; \
-                             *(gpio+(2)) = 0b001001; \
-                             GPIO_SET = 1<<21;
+                             *(gpio+(2)) = 0b001001001; \
+                             GPIO_SET = 1<<21
+
+#define LOCK_ADDRESS_BUS()   GPIO_CLR = 1<<22
+#define UNLOCK_ADDRESS_BUS() GPIO_SET = 1<<22
+
+#define MASK_ADDRESS_BUS 0b000000001111111111111
+#define MASK_DATA_BUS    0b111111110000000000000
+
 
 #define GPIO_PULL *(gpio+37) // Pull up/pull down
 #define GPIO_PULLCLK0 *(gpio+38) // Pull up/pull down clock
@@ -78,8 +85,6 @@ void CartridgePort::install(System& system)
 //  cpu_set_t mask;
 
   myCycleTimerThread = std::thread(&CartridgePort::cycleManagerThread, this);
-
-  printf("Starting CartTester\n");
 
   // set CPU we want to run on
  // CPU_ZERO(&mask);
@@ -126,12 +131,16 @@ void CartridgePort::install(System& system)
   // Set GPIO pins 0-12 to output (6502 address)
   // pins 13-20 to input (6502 data)
   // pin 21 to output (Level shifter direction)
+  // pin 22 to output (Address bus latch lock/unlock)
   *(gpio+(0)) = 0b00001001001001001001001001001001;
   *(gpio+(1)) = 0b001001001;
-  *(gpio+(2)) = 0b001000;
+  *(gpio+(2)) = 0b001001000;
 
   // Set GPIO pin 21 to low (initial ls direction is read)
   GPIO_CLR = 1<<21;
+
+  // Set GPIO pin 22 to high (initial address bus unlocked)
+  GPIO_SET = 1<<22;
 
 }
 
@@ -148,17 +157,25 @@ uInt8 CartridgePort::peek(uInt16 address)
   uInt8 result = 0;
 
   if(address & 0x1000 ){ // check if cartport address
-  // First tell the cartridge which adress is requested
+    LOCK_ADDRESS_BUS();
+    uInt32 gpio_addr_value = (uInt32) (address & MASK_ADDRESS_BUS) | 0x400000;
     if(lastAccessWasWrite){
       waitForCycleEnd();
-      SET_DATA_BUS_READ() // delete Data on Bus not before changing the address!!!!!
-    }
+      GPIO_CLR = MASK_ADDRESS_BUS;
+      GPIO_SET = gpio_addr_value;
 
-    if(address != lastAddress) {
-      GPIO_CLR = 0b1111111111111;
-      GPIO_SET = address;
+//  int g = 15; // ~30ns delay for the latch
+//  while(--g){
+//    asm volatile("nop");
+//  }
+
+      SET_DATA_BUS_READ(); // delete Data on Bus not before changing the address!!!!!
+    }else{
+      GPIO_CLR = MASK_ADDRESS_BUS;
+      GPIO_SET = gpio_addr_value;
     }
     cycleActive = true; //.store(true, std::memory_order_release);
+
     waitForCycleEnd();
     result = GET_DATA_BUS();
     lastAccessWasWrite = false;
@@ -168,49 +185,15 @@ uInt8 CartridgePort::peek(uInt16 address)
     }else{
       result = mySystem->tia().peek(address);
     }
-    // and of course we have to set the databus here for
-    // the Cart to peek what TIA and RIOT have to say!
-    uInt32 gpio_value = (uInt32) (address & 0x1fff) | (((uInt32)result)<<13 );
-    if(lastAccessWasWrite){
-      waitForCycleEnd();
-    } else {
-      SET_DATA_BUS_WRITE()
-    }
-
-    if(address != lastAddress) {
-      GPIO_CLR = 0b111111111111111111111;
-      GPIO_SET = gpio_value;
-    }else{
-      GPIO_CLR = 0b111111110000000000000;
-      GPIO_SET = gpio_value;
-    }
-    cycleActive = true; //.store(true, std::memory_order_release);
-    lastAccessWasWrite = true;
+    setupBusForCartToRead(address, result);
   }
-  lastAddress = address;
   return result;
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 bool CartridgePort::poke(uInt16 address, uInt8 value)
 {
-//   printf("start poke CartridgePort\n");
-  uInt32 gpio_value = (uInt32) (address & 0x1fff) | (((uInt32)value)<<13 );
-
-  if(lastAccessWasWrite){
-    waitForCycleEnd();
-  }else{
-    SET_DATA_BUS_WRITE()
-  }
-  if(address != lastAddress) {
-    GPIO_CLR = 0b111111111111111111111;
-    GPIO_SET = gpio_value;
-  }else{
-    GPIO_CLR = 0b111111110000000000000;
-    GPIO_SET = gpio_value;
-  }
-
-  cycleActive = true;
+  setupBusForCartToRead(address, value);
 
   if(! (address & 0x1000) ){ // check if TIA, RIOT or RAM write.
     if(address & 0b10000000 ){
@@ -219,10 +202,34 @@ bool CartridgePort::poke(uInt16 address, uInt8 value)
       mySystem->tia().poke(address, value);
     }
   }
-  lastAccessWasWrite = true;
-  lastAddress = address;
-
   return true;
+}
+
+void CartridgePort::setupBusForCartToRead(uInt16 address, uInt8 value){
+  uInt32 gpio_full_value = (uInt32) (address & MASK_ADDRESS_BUS) | (((uInt32)value)<<13 ) | 0x400000;
+  uInt32 gpio_addr_value = (uInt32) (address & MASK_ADDRESS_BUS) | 0x400000;
+
+  LOCK_ADDRESS_BUS();
+  if(lastAccessWasWrite){
+    waitForCycleEnd();
+  }else{
+    SET_DATA_BUS_WRITE();
+  }
+
+  GPIO_CLR = MASK_ADDRESS_BUS;
+  GPIO_SET = gpio_addr_value;
+
+  int g = 15; // ~30ns delay for the latch
+  while(--g){
+    asm volatile("nop");
+  }
+
+  GPIO_CLR = MASK_DATA_BUS;
+  GPIO_SET = gpio_full_value;
+
+  cycleActive = true;
+
+  lastAccessWasWrite = true;
 }
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
